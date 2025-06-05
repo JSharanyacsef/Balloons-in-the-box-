@@ -1,0 +1,89 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from mpl_toolkits.mplot3d import Axes3D
+import random
+import winsound  # Only works on Windows
+
+# Box dimensions
+box_min, box_max = -10, 10
+
+# Get user input for number of balloons
+try:
+    num_balloons = int(input("Enter number of balloons: "))
+    if num_balloons <= 0:
+        raise ValueError
+except ValueError:
+    print("Please enter a positive integer.")
+    exit()
+
+# Balloon class
+class Balloon:
+    def _init_(self):
+        self.center = np.array([
+            random.uniform(box_min + 2, box_max - 2),
+            random.uniform(box_min + 2, box_max - 2),
+            random.uniform(box_min + 2, box_max - 2)
+        ])
+        self.radius = 0.5
+        self.color = np.random.rand(3,)
+        self.angle = 0
+        self.axis = np.random.rand(3,) - 0.5
+
+    def grow(self, rate=0.05):
+        self.radius += rate
+
+    def rotate(self):
+        self.angle += 0.1
+
+    def is_inside_box(self):
+        return all(abs(self.center[i]) + self.radius <= box_max for i in range(3))
+
+# Create balloons
+balloons = [Balloon() for _ in range(num_balloons)]
+
+# Create figure
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.set_xlim(box_min, box_max)
+ax.set_ylim(box_min, box_max)
+ax.set_zlim(box_min, box_max)
+ax.set_title("3D Balloon Box Simulation")
+
+# Function to draw a balloon
+def create_sphere(center, radius, color):
+    u, v = np.mgrid[0:2*np.pi:16j, 0:np.pi:8j]
+    x = center[0] + radius * np.cos(u) * np.sin(v)
+    y = center[1] + radius * np.sin(u) * np.sin(v)
+    z = center[2] + radius * np.cos(v)
+    return ax.plot_surface(x, y, z, color=color, alpha=0.6, edgecolor='k')
+
+# Animation update function
+def update(frame):
+    global balloons
+    ax.cla()
+    ax.set_xlim(box_min, box_max)
+    ax.set_ylim(box_min, box_max)
+    ax.set_zlim(box_min, box_max)
+    ax.set_title("3D Balloon Box Simulation")
+
+    alive_balloons = []
+    for balloon in balloons:
+        balloon.grow()
+        balloon.rotate()
+        if balloon.is_inside_box():
+            create_sphere(balloon.center, balloon.radius, balloon.color)
+            alive_balloons.append(balloon)
+        else:
+            print(f"A balloon exploded at {balloon.center}")
+            winsound.Beep(1000, 200)  # Beep at 1000 Hz for 200 ms
+
+    balloons[:] = alive_balloons
+
+    if not balloons:
+        ani.event_source.stop()
+        print("All balloons have exploded!")
+
+# Run animation
+ani = FuncAnimation(fig, update, frames=200, interval=100)
+plt.show()
