@@ -1,166 +1,171 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.animation import FuncAnimation
 from mpl_toolkits.mplot3d import Axes3D
+from tkinter import *
+from tkinter import messagebox
 import random
-import threading
-import winsound
+import math
+import platform
+import os
 
-# Box boundaries
-box_min, box_max = -10, 10
-
-# Lock for safe multi-thread access
-balloon_lock = threading.Lock()
-
-# Sound effect function
-def play_explosion_sound():
-    winsound.PlaySound("blast.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+# Optional burst sound (Windows only)
+if platform.system() == 'Windows':
+    import winsound
+    def play_burst_sound():
+        if os.path.exists("burst.wav"):
+            try:
+                winsound.PlaySound("burst.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+            except:
+                print("Error: 'burst.wav' could not be played.")
+        else:
+            print("Warning: 'burst.wav' not found.")
+else:
+    def play_burst_sound():
+        print("Burst sound not supported on this OS.")
 
 # Balloon class
 class Balloon:
-    id_counter = 1
+    def _init_(self, balloon_id, x, y, z, on_burst_callback, radius=1.0):
+        self.id = balloon_id
+        self.center = [x, y, z]
+        self.radius = radius
+        self.color = [random.random() for _ in range(3)]
+        self.alive = True
+        self.on_burst_callback = on_burst_callback
 
-    def __init__(self):
-        self.id = Balloon.id_counter
-        Balloon.id_counter += 1
-        self.center = np.array([
-            random.uniform(box_min + 2, box_max - 2),
-            random.uniform(box_min + 2, box_max - 2),
-            random.uniform(box_min + 2, box_max - 2)
-        ])
-        self.radius = 0.5
-        self.color = np.random.rand(3,)
-        self.selected = False
-        self.rotation_angle = 0
-        self.rotation_axis = np.random.rand(3,) - 0.5
-        self.rotation_axis /= np.linalg.norm(self.rotation_axis)
-
-    def grow(self, rate=0.05):
-        self.radius += rate
-
-    def rotate(self):
-        self.rotation_angle += 0.1
-        # Simulate orbit-like rotation for visualization
-        theta = self.rotation_angle
-        rot_vec = np.cross(self.rotation_axis, self.center)
-        if np.linalg.norm(rot_vec) > 0:
-            rot_vec = rot_vec / np.linalg.norm(rot_vec)
-        displacement = 0.05 * np.array([
-            np.cos(theta) * rot_vec[0],
-            np.sin(theta) * rot_vec[1],
-            np.sin(theta) * rot_vec[2]
-        ])
-        self.center += displacement
-
-    def is_inside_box(self):
-        return all(abs(self.center[i]) + self.radius <= box_max for i in range(3))
-
-# User chooses number of balloons
-try:
-    num_balloons = int(input("Enter number of initial balloons: "))
-    if num_balloons <= 0:
-        raise ValueError
-except ValueError:
-    print("Please enter a positive integer.")
-    exit()
-
-balloons = [Balloon() for _ in range(num_balloons)]
-
-# Plot setup
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.set_xlim(box_min, box_max)
-ax.set_ylim(box_min, box_max)
-ax.set_zlim(box_min, box_max)
-ax.set_title("🎈 Balloon Simulation (Selective Growth + Random Rotation)")
-
-# Draw a balloon
-def create_sphere(center, radius, color):
-    u, v = np.mgrid[0:2*np.pi:16j, 0:np.pi:8j]
-    x = center[0] + radius * np.cos(u) * np.sin(v)
-    y = center[1] + radius * np.sin(u) * np.sin(v)
-    z = center[2] + radius * np.cos(v)
-    return ax.plot_surface(x, y, z, color=color, alpha=0.6, edgecolor='k')
-
-# Animation frame update
-def update(frame):
-    global balloons
-    ax.cla()
-    ax.set_xlim(box_min, box_max)
-    ax.set_ylim(box_min, box_max)
-    ax.set_zlim(box_min, box_max)
-    ax.set_title("🎈 Balloon Simulation (Selective Growth + Random Rotation)")
-
-    alive_balloons = []
-
-    with balloon_lock:
-        for balloon in balloons:
-            if balloon.selected:
-                balloon.grow()
-            balloon.rotate()
-            if balloon.is_inside_box():
-                create_sphere(balloon.center, balloon.radius, balloon.color)
-                alive_balloons.append(balloon)
-            else:
-                print(f"💥 Balloon {balloon.id} exploded at {np.round(balloon.center, 2)}")
-                threading.Thread(target=play_explosion_sound, daemon=True).start()
-
-        balloons[:] = alive_balloons
-
-    if not balloons:
-        ani.event_source.stop()
-        print("All balloons have exploded!")
-
-# User control thread
-def user_control_thread():
-    print("\n🎮 Balloon Control Panel 🎮")
-    print("Type a balloon ID to grow it. Type 'stop <ID>' to stop growth.")
-    print("Type 'list' to see balloon IDs. Type 'add' to create a new balloon.")
-    print("Type 'exit' to quit control panel.\n")
-    while True:
-        user_input = input("Command: ").strip().lower()
-        if user_input == "exit":
-            print("❌ Exiting control panel.")
-            break
-        elif user_input == "list":
-            with balloon_lock:
-                for b in balloons:
-                    status = "GROWING" if b.selected else "idle"
-                    print(f"Balloon {b.id} | Radius: {b.radius:.2f} | {status}")
-        elif user_input.startswith("stop "):
-            try:
-                stop_id = int(user_input.split()[1])
-                with balloon_lock:
-                    for b in balloons:
-                        if b.id == stop_id:
-                            b.selected = False
-                            print(f"🛑 Balloon {stop_id} growth stopped.")
-            except:
-                print("Invalid format. Use: stop <ID>")
-        elif user_input == "add":
-            new_balloon = Balloon()
-            with balloon_lock:
-                balloons.append(new_balloon)
-            print(f"🎈 New balloon added with ID {new_balloon.id}")
+    def grow(self):
+        if self.radius < 5:
+            self.radius += 0.2
         else:
-            try:
-                balloon_id = int(user_input)
-                with balloon_lock:
-                    found = False
-                    for b in balloons:
-                        if b.id == balloon_id:
-                            b.selected = True
-                            print(f"✅ Balloon {balloon_id} set to grow.")
-                            found = True
-                            break
-                    if not found:
-                        print("❌ Balloon ID not found.")
-            except ValueError:
-                print("⚠️ Invalid command.")
+            if self.alive:
+                self.alive = False
+                play_burst_sound()
+                self.on_burst_callback(self.id)  # Trigger the popup
 
-# Start control thread
-threading.Thread(target=user_control_thread, daemon=True).start()
+# Main simulation class
+class BalloonSimulation:
+    def _init_(self, root):
+        self.root = root
+        self.root.title("🎈 Balloon Simulation")
+        self.balloons = []
 
-# Start animation
-ani = FuncAnimation(fig, update, frames=200, interval=100)
-plt.show()
+        # Create 3D plot area
+        self.fig = plt.figure(figsize=(6, 6))
+        self.ax = self.fig.add_subplot(111, projection='3d')
+        self.canvas = FigureCanvasTkAgg(self.fig, master=root)
+        self.canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew", columnspan=3)
+
+        # Top-right control panel
+        right_top_frame = Frame(root)
+        right_top_frame.grid(row=0, column=2, sticky="ne", padx=10, pady=10)
+
+        Button(right_top_frame, text="Add Balloon", command=self.add_balloon).grid(row=0, column=0, padx=5)
+        Button(right_top_frame, text="Remaining Volume", command=self.show_remaining_volume).grid(row=1, column=0, pady=5)
+
+        # Bottom control panel
+        control_frame = Frame(root)
+        control_frame.grid(row=1, column=0, padx=10, columnspan=3, pady=10)
+
+        Label(control_frame, text="Balloon ID:").grid(row=0, column=0, padx=5)
+        self.id_entry = Entry(control_frame, width=5)
+        self.id_entry.grid(row=0, column=1, padx=5)
+
+        Button(control_frame, text="Grow Balloon", command=self.grow_balloon).grid(row=0, column=2, padx=5)
+        Button(control_frame, text="Remove Balloon", command=self.remove_balloon).grid(row=0, column=3, padx=5)
+
+        self.ani = FuncAnimation(self.fig, self.update_plot, interval=500)
+
+    def get_selected_id(self):
+        try:
+            return int(self.id_entry.get())
+        except ValueError:
+            return None
+
+    def is_far_enough(self, x, y, z, min_dist=4.0):
+        for b in self.balloons:
+            if not b.alive:
+                continue
+            dist = math.dist([x, y, z], b.center)
+            if dist < min_dist:
+                return False
+        return True
+
+    def get_next_id(self):
+        used_ids = {b.id for b in self.balloons if b.alive}
+        for i in range(1, 11):
+            if i not in used_ids:
+                return i
+        return None
+
+    def on_balloon_burst(self, balloon_id):
+        messagebox.showinfo("Balloon Burst", f"Balloon B{balloon_id} popped!")
+
+    def add_balloon(self):
+        if sum(b.alive for b in self.balloons) >= 10:
+            messagebox.showwarning("Limit Reached", "THE LIMIT IS 10")
+            return
+
+        next_id = self.get_next_id()
+        if next_id is None:
+            messagebox.showwarning("Limit Reached", "THE LIMIT IS 10")
+            return
+
+        for _ in range(100):
+            x, y, z = [random.uniform(-8, 8) for _ in range(3)]
+            if self.is_far_enough(x, y, z):
+                self.balloons.append(Balloon(next_id, x, y, z, self.on_balloon_burst))
+                return
+
+        messagebox.showwarning("Placement Failed", "Couldn't find space for a new balloon.")
+
+    def grow_balloon(self):
+        balloon_id = self.get_selected_id()
+        for b in self.balloons:
+            if b.id == balloon_id and b.alive:
+                b.grow()
+
+    def remove_balloon(self):
+        balloon_id = self.get_selected_id()
+        self.balloons = [b for b in self.balloons if b.id != balloon_id]
+
+    def show_remaining_volume(self):
+        box_vol = 20**3
+        used_vol = sum((4/3) * math.pi * (b.radius**3) for b in self.balloons if b.alive)
+        remaining = box_vol - used_vol
+        messagebox.showinfo("Remaining Volume",
+                            f"Used Volume: {used_vol:.2f} units³\n"
+                            f"Remaining Volume: {remaining:.2f} units³")
+
+    def update_plot(self, frame):
+        self.ax.clear()
+        self.ax.set_xlim(-10, 10)
+        self.ax.set_ylim(-10, 10)
+        self.ax.set_zlim(-10, 10)
+        self.ax.set_title("🎈 Balloon Simulation")
+
+        for b in self.balloons:
+            if b.alive:
+                u, v = np.mgrid[0:2*np.pi:20j, 0:np.pi:10j]
+                x = b.radius * np.cos(u) * np.sin(v) + b.center[0]
+                y = b.radius * np.sin(u) * np.sin(v) + b.center[1]
+                z = b.radius * np.cos(v) + b.center[2]
+                self.ax.plot_surface(x, y, z, color=b.color, alpha=0.6, shade=True)
+                lx, ly, lz = b.center[0], b.center[1], b.center[2] + b.radius + 0.5
+                self.ax.text(lx, ly, lz, f"B{b.id}", color='white', fontsize=12,
+                             fontweight='bold', bbox=dict(facecolor='black', edgecolor='white', pad=2))
+
+# === Start screen ===
+def launch_simulation():
+    start_window.destroy()
+    main_root = Tk()
+    app = BalloonSimulation(main_root)
+    main_root.mainloop()
+
+start_window = Tk()
+start_window.title("Start Menu")
+start_window.geometry("600x600")
+Label(start_window, text="Welcome to Balloon Simulation!", font=("Arial", 30)).pack(pady=100)
+Button(start_window, text="START", font=("Arial", 12), command=launch_simulation).pack(pady=10)
+start_window.mainloop()
